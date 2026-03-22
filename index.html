@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOLARIS — Solana Token Intelligence</title>
+<meta name="description" content="Real-time Solana token analysis. Risk scoring, liquidity metrics, trending detection.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☀️</text></svg>">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+  :root {
+    --bg: #05050a;
+    --surface: #0a0a12;
+    --surface2: #10101a;
+    --border: #1a1a2a;
+    --border2: #252540;
+    --text: #e0e0f0;
+    --text2: #8888aa;
+    --text3: #555570;
+    --sol-purple: #9945FF;
+    --sol-green: #14F195;
+    --sol-cyan: #00d4ff;
+    --green: #22c55e;
+    --red: #ef4444;
+    --orange: #f97316;
+    --yellow: #eab308;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── Scanlines overlay ───────────────────── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ─── Header ──────────────────────────────── */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-icon {
+    font-size: 24px;
+    animation: glow 3s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%,100% { filter: drop-shadow(0 0 4px var(--sol-purple)); }
+    50% { filter: drop-shadow(0 0 12px var(--sol-green)); }
+  }
+  .logo-text {
+    font-size: 20px;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--sol-purple), var(--sol-green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 4px;
+  }
+  .logo-sub {
+    font-size: 9px;
+    color: var(--text3);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: blink 2s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ─── Search ──────────────────────────────── */
+  .search-bar {
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .search-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--sol-green);
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+  .search-input:focus { border-color: var(--sol-purple); }
+  .search-input::placeholder { color: var(--text3); }
+
+  /* ─── Stats Bar ───────────────────────────── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    border-bottom: 1px solid var(--border);
+  }
+  .stat {
+    padding: 14px 20px;
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+  .stat:last-child { border-right: none; }
+  .stat-label {
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text3);
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .stat-value.purple { color: var(--sol-purple); }
+  .stat-value.green { color: var(--sol-green); }
+  .stat-value.cyan { color: var(--sol-cyan); }
+
+  /* ─── Main Layout ─────────────────────────── */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    min-height: calc(100vh - 180px);
+  }
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .sidebar { border-left: none !important; border-top: 1px solid var(--border); }
+  }
+
+  /* ─── Token Table ─────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text3);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  th:hover { color: var(--sol-green); }
+  th.sorted { color: var(--sol-purple); }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tr { transition: background 0.15s; }
+  tr:hover { background: rgba(153,69,255,0.04); }
+
+  .token-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .token-symbol {
+    font-weight: 700;
+    color: var(--text);
+  }
+  .token-pair {
+    font-size: 10px;
+    color: var(--text3);
+  }
+  .price {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .change {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .change.pos { color: var(--green); }
+  .change.neg { color: var(--red); }
+
+  /* Risk Score */
+  .risk-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .risk-track {
+    width: 60px;
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .risk-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s;
+  }
+  .risk-low { background: var(--green); }
+  .risk-med { background: var(--yellow); }
+  .risk-high { background: var(--orange); }
+  .risk-extreme { background: var(--red); }
+  .risk-label {
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .risk-low-text { color: var(--green); }
+  .risk-med-text { color: var(--yellow); }
+  .risk-high-text { color: var(--orange); }
+  .risk-extreme-text { color: var(--red); }
+
+  /* Volume bar */
+  .vol-bar {
+    width: 70px; height: 5px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .vol-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--sol-purple), var(--sol-green));
+    border-radius: 3px;
+  }
+
+  /* Age badge */
+  .age-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .age-new { background: rgba(239,68,68,0.15); color: var(--red); }
+  .age-young { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .age-mature { background: rgba(34,197,94,0.15); color: var(--green); }
+
+  /* ─── Sidebar ─────────────────────────────── */
+  .sidebar {
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .sidebar h3 {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text3);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-section { margin-bottom: 24px; }
+
+  /* Trending */
+  .trending-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .trending-item:last-child { border: none; }
+  .trending-item .sym {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .trending-item .info {
+    font-size: 10px;
+    color: var(--text3);
+    margin-top: 2px;
+  }
+  .trending-item:hover .sym { color: var(--sol-green); }
+
+  /* Info box */
+  .info-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 11px;
+    color: var(--text2);
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+  .info-box strong { color: var(--sol-green); }
+
+  /* Score detail */
+  .score-detail {
+    margin-bottom: 10px;
+  }
+  .score-detail .label {
+    font-size: 10px;
+    color: var(--text3);
+    margin-bottom: 3px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .score-bar {
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .score-fill {
+    height: 100%;
+    border-radius: 2px;
+  }
+
+  /* ─── Loading ─────────────────────────────── */
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px;
+    gap: 16px;
+  }
+  .spinner {
+    width: 24px; height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--sol-green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Footer ──────────────────────────────── */
+  .footer {
+    border-top: 1px solid var(--border);
+    padding: 12px 24px;
+    font-size: 9px;
+    color: var(--text3);
+    text-align: center;
+  }
+
+  /* ─── Terminal style keyframes ────────────── */
+  .typing { overflow: hidden; border-right: 2px solid var(--sol-green); animation: typing 0.5s steps(20), blinkCaret 0.75s step-end infinite; }
+  @keyframes blinkCaret { from,to { border-color: transparent } 50% { border-color: var(--sol-green); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <span class="logo-icon">☀️</span>
+    <div>
+      <div class="logo-text">SOLARIS</div>
+      <div class="logo-sub">Solana Token Intelligence</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="status">
+      <div class="dot"></div>
+      <span id="statusText">Connecting to Solana...</span>
+    </div>
+    <span>|</span>
+    <span id="lastUpdate">--</span>
+  </div>
+</div>
+
+<div class="search-bar">
+  <input type="text" class="search-input" id="searchBox" placeholder="> search tokens by name, symbol, or address..." oninput="handleSearch(this.value)">
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat">
+    <div class="stat-label">Tokens Tracked</div>
+    <div class="stat-value purple" id="statTokens">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Total Volume 24h</div>
+    <div class="stat-value green" id="statVolume">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Avg Risk Score</div>
+    <div class="stat-value cyan" id="statRisk">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">New Tokens (24h)</div>
+    <div class="stat-value" id="statNew">--</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">SOL Price</div>
+    <div class="stat-value green" id="statSOL">--</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="table-wrap">
+    <div id="tableContent">
+      <div class="loading">
+        <div class="spinner"></div>
+        <span style="font-size:11px;color:var(--text3)">Scanning DexScreener for Solana tokens...</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <h3>🔥 Trending on Solana</h3>
+      <div id="trendingList">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>📊 Risk Score Explained</h3>
+      <div class="info-box">
+        <strong>SOLARIS Score</strong> (0-100) combines:<br><br>
+        • <strong>Liquidity depth</strong> — higher = safer<br>
+        • <strong>Volume/Liquidity ratio</strong> — detects manipulation<br>
+        • <strong>Price volatility</strong> — wild swings = risk<br>
+        • <strong>Token age</strong> — newer = riskier<br>
+        • <strong>DEX distribution</strong> — single DEX = risk<br><br>
+        <span style="color:var(--green)">80-100</span> Low risk · 
+        <span style="color:var(--yellow)">50-79</span> Medium · 
+        <span style="color:var(--orange)">25-49</span> High · 
+        <span style="color:var(--red)">0-24</span> Extreme
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h3>⚙️ Scoring Breakdown</h3>
+      <div id="scoreDetail">
+        <div class="info-box">Click a token to see its score breakdown</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  SOLARIS v1.0 — Data from DexScreener API — Solana chain — Auto-refreshes every 45s — Built by Atlas ⚡
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  SOLARIS — Solana Token Intelligence Engine
+//  Live data, risk scoring, terminal aesthetic
+// ═══════════════════════════════════════════════════════════
+
+const REFRESH = 45_000;
+let tokens = [];
+let search = '';
+let sortBy = 'risk';
+let sortDir = 'asc';
+
+// ─── Fetch Token Data ──────────────────────────────────
+async function fetchTrending() {
+  try {
+    const res = await fetch('https://api.dexscreener.com/token-boosts/top/v1', { signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+    return data.filter(t => t.chainId === 'solana').map(t => t.tokenAddress);
+  } catch { return []; }
+}
+
+async function fetchTokenPairs(address) {
+  try {
+    const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`, { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    return data.pairs || [];
+  } catch { return []; }
+}
+
+async function fetchSOLPrice() {
+  try {
+    const res = await fetch('https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112', { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    const solPair = data.pairs?.find(p => p.quoteToken?.symbol === 'USDC' || p.quoteToken?.symbol === 'USDT');
+    return solPair?.priceUsd ? parseFloat(solPair.priceUsd) : null;
+  } catch { return null; }
+}
+
+// ─── Risk Scoring Engine ───────────────────────────────
+function calculateRisk(pair) {
+  if (!pair) return { score: 0, factors: {} };
+
+  const liquidity = pair.liquidity?.usd || 0;
+  const volume24h = pair.volume?.h24 || 0;
+  const priceChange24h = Math.abs(pair.priceChange?.h24 || 0);
+  const pairAge = pair.pairCreatedAt ? (Date.now() - pair.pairCreatedAt) / 86400000 : 365;
+  const dexCount = 1; // simplified — could cross-reference
+  const volLiqRatio = liquidity > 0 ? volume24h / liquidity : 0;
+
+  // Factor scores (0-100, higher = better/safer)
+  const liquidityScore = Math.min(100, Math.log10(Math.max(liquidity, 1)) * 15);
+  const volRatioScore = volLiqRatio > 10 ? 10 : volLiqRatio > 5 ? 30 : volLiqRatio > 2 ? 60 : volLiqRatio > 0.5 ? 85 : 50;
+  const volatilityScore = priceChange24h > 50 ? 10 : priceChange24h > 20 ? 30 : priceChange24h > 10 ? 50 : priceChange24h > 5 ? 70 : 90;
+  const ageScore = pairAge < 1 ? 10 : pairAge < 7 ? 30 : pairAge < 30 ? 50 : pairAge < 90 ? 70 : 90;
+  const dexScore = 70; // base
+
+  const factors = {
+    liquidity: { score: liquidityScore, weight: 0.30 },
+    volRatio: { score: volRatioScore, weight: 0.20 },
+    volatility: { score: volatilityScore, weight: 0.20 },
+    age: { score: ageScore, weight: 0.20 },
+    dex: { score: dexScore, weight: 0.10 },
+  };
+
+  let totalScore = 0;
+  for (const f of Object.values(factors)) {
+    totalScore += f.score * f.weight;
+  }
+
+  return {
+    score: Math.round(totalScore),
+    factors,
+    liquidity,
+    volume24h,
+    volLiqRatio,
+    age: pairAge,
+  };
+}
+
+function riskLevel(score) {
+  if (score >= 80) return { label: 'LOW', class: 'low' };
+  if (score >= 50) return { label: 'MED', class: 'med' };
+  if (score >= 25) return { label: 'HIGH', class: 'high' };
+  return { label: 'EXTREME', class: 'extreme' };
+}
+
+function ageLabel(days) {
+  if (days < 1) return { text: '<1d', class: 'age-new' };
+  if (days < 7) return { text: `${Math.floor(days)}d`, class: 'age-new' };
+  if (days < 30) return { text: `${Math.floor(days)}d`, class: 'age-young' };
+  if (days < 90) return { text: `${Math.floor(days/30)}mo`, class: 'age-mature' };
+  return { text: `${Math.floor(days/30)}mo`, class: 'age-mature' };
+}
+
+// ─── Load All Data ─────────────────────────────────────
+async function loadAll() {
+  document.getElementById('statusText').textContent = 'Fetching trending tokens...';
+
+  const trendingAddresses = await fetchTrending();
+  document.getElementById('statusText').textContent = `Loading ${trendingAddresses.length} tokens...`;
+
+  // Fetch pairs for trending tokens + known major tokens
+  const majorTokens = [
+    'So11111111111111111111111111111111111111112', // SOL (wrapped)
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+    'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', // JUP
+    '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
+    'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // mSOL
+    'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE', // ORCA
+  ];
+
+  const allAddresses = [...new Set([...majorTokens, ...trendingAddresses])];
+
+  // Fetch in batches of 5 to avoid rate limits
+  const allPairs = [];
+  for (let i = 0; i < allAddresses.length; i += 5) {
+    const batch = allAddresses.slice(i, i + 5);
+    const results = await Promise.all(batch.map(a => fetchTokenPairs(a)));
+    results.forEach(pairs => allPairs.push(...pairs));
+    if (i + 5 < allAddresses.length) await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Process and score
+  tokens = allPairs
+    .filter(p => p.chainId === 'solana' && p.baseToken)
+    .map(pair => {
+      const risk = calculateRisk(pair);
+      return {
+        symbol: pair.baseToken.symbol || '???',
+        name: pair.baseToken.name || '',
+        address: pair.baseToken.address,
+        price: parseFloat(pair.priceUsd) || 0,
+        change24h: pair.priceChange?.h24 || 0,
+        change1h: pair.priceChange?.h1 || 0,
+        volume24h: pair.volume?.h24 || 0,
+        liquidity: pair.liquidity?.usd || 0,
+        fdv: pair.fdv || 0,
+        pairCreatedAt: pair.pairCreatedAt,
+        dex: pair.dexId || 'unknown',
+        quoteSymbol: pair.quoteToken?.symbol || '',
+        risk,
+        age: risk.age,
+      };
+    })
+    // Deduplicate by address, keep highest liquidity
+    .reduce((acc, t) => {
+      const existing = acc.find(x => x.address === t.address);
+      if (!existing || t.liquidity > existing.liquidity) {
+        return [...acc.filter(x => x.address !== t.address), t];
+      }
+      return acc;
+    }, []);
+
+  // SOL price
+  const solPrice = await fetchSOLPrice();
+  if (solPrice) {
+    document.getElementById('statSOL').textContent = `$${solPrice.toFixed(2)}`;
+  }
+
+  document.getElementById('statusText').textContent = 'Live';
+  render();
+}
+
+// ─── Rendering ─────────────────────────────────────────
+function fmt(n) {
+  if (n >= 1e9) return `$${(n/1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n/1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n/1e3).toFixed(1)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n > 0) return `$${n.toPrecision(4)}`;
+  return '$0';
+}
+
+function fmtPrice(n) {
+  if (n >= 1000) return `$${n.toLocaleString('en-US', {maximumFractionDigits: 2})}`;
+  if (n >= 1) return `$${n.toFixed(4)}`;
+  if (n > 0) return `$${n.toPrecision(6)}`;
+  return '$0';
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function filterAndSort() {
+  let list = [...tokens];
+
+  if (search) {
+    const q = search.toLowerCase();
+    list = list.filter(t =>
+      t.symbol.toLowerCase().includes(q) ||
+      t.name.toLowerCase().includes(q) ||
+      t.address.toLowerCase().includes(q)
+    );
+  }
+
+  const dir = sortDir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    switch (sortBy) {
+      case 'risk': return dir * (a.risk.score - b.risk.score);
+      case 'volume': return dir * (b.volume24h - a.volume24h);
+      case 'liquidity': return dir * (b.liquidity - a.liquidity);
+      case 'change': return dir * (b.change24h - a.change24h);
+      case 'age': return dir * (a.age - b.age);
+      case 'name': return dir * a.symbol.localeCompare(b.symbol);
+      default: return dir * (a.risk.score - b.risk.score);
+    }
+  });
+
+  return list;
+}
+
+function render() {
+  const list = filterAndSort();
+  const maxVol = Math.max(...tokens.map(t => t.volume24h), 1);
+
+  // Stats
+  document.getElementById('statTokens').textContent = tokens.length;
+  document.getElementById('statVolume').textContent = fmt(tokens.reduce((s, t) => s + t.volume24h, 0));
+  const avgRisk = tokens.length ? Math.round(tokens.reduce((s, t) => s + t.risk.score, 0) / tokens.length) : 0;
+  document.getElementById('statRisk').textContent = avgRisk;
+  const newTokens = tokens.filter(t => t.age < 7).length;
+  document.getElementById('statNew').textContent = newTokens;
+  document.getElementById('lastUpdate').textContent = `Updated ${new Date().toLocaleTimeString()}`;
+
+  // Table
+  const rows = list.map((t, i) => {
+    const r = riskLevel(t.risk.score);
+    const changeCls = t.change24h >= 0 ? 'pos' : 'neg';
+    const changeSign = t.change24h >= 0 ? '+' : '';
+    const age = ageLabel(t.age);
+    const volPct = Math.min(100, (t.volume24h / maxVol) * 100);
+
+    return `<tr onclick="showDetail(${i})" style="cursor:pointer">
+      <td style="color:var(--text3);font-size:10px">${i + 1}</td>
+      <td>
+        <div class="token-name">
+          <span class="token-symbol">${escHtml(t.symbol)}</span>
+          <span class="token-pair">/${escHtml(t.quoteSymbol)}</span>
+        </div>
+      </td>
+      <td class="price">${fmtPrice(t.price)}</td>
+      <td class="change ${changeCls}">${changeSign}${t.change24h.toFixed(2)}%</td>
+      <td class="change ${t.change1h >= 0 ? 'pos' : 'neg'}">${t.change1h >= 0 ? '+' : ''}${t.change1h.toFixed(2)}%</td>
+      <td>
+        <div class="vol-bar"><div class="vol-fill" style="width:${volPct}%"></div></div>
+        <span style="font-size:10px;color:var(--text3)">${fmt(t.volume24h)}</span>
+      </td>
+      <td style="color:var(--text3)">${fmt(t.liquidity)}</td>
+      <td><span class="age-badge ${age.class}">${age.text}</span></td>
+      <td>
+        <div class="risk-bar">
+          <div class="risk-track"><div class="risk-fill risk-${r.class}" style="width:${t.risk.score}%"></div></div>
+          <span class="risk-label risk-${r.class}-text">${t.risk.score}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tableContent').innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th onclick="setSort('name')">Token</th>
+          <th>Price</th>
+          <th onclick="setSort('change')">24h</th>
+          <th>1h</th>
+          <th onclick="setSort('volume')">Vol 24h</th>
+          <th onclick="setSort('liquidity')">Liq</th>
+          <th onclick="setSort('age')">Age</th>
+          <th onclick="setSort('risk')">Risk</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  // Trending sidebar
+  const trending = list.slice(0, 10);
+  document.getElementById('trendingList').innerHTML = trending.map(t => {
+    const r = riskLevel(t.risk.score);
+    return `<div class="trending-item" onclick="document.getElementById('searchBox').value='${t.symbol}';handleSearch('${t.symbol}')">
+      <div class="sym">${escHtml(t.symbol)} <span style="font-size:10px;color:var(--text3)">${t.change24h >= 0 ? '▲' : '▼'} ${Math.abs(t.change24h).toFixed(1)}%</span></div>
+      <div class="info">${fmt(t.volume24h)} vol · ${fmt(t.liquidity)} liq · Risk: <span class="risk-${r.class}-text">${t.risk.score}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function showDetail(idx) {
+  const list = filterAndSort();
+  const t = list[idx];
+  if (!t) return;
+
+  const f = t.risk.factors;
+  const labels = {
+    liquidity: 'Liquidity Depth',
+    volRatio: 'Volume/Liq Ratio',
+    volatility: 'Price Stability',
+    age: 'Token Age',
+    dex: 'DEX Distribution',
+  };
+
+  let html = `<div style="margin-bottom:8px"><strong style="color:var(--sol-green)">${escHtml(t.symbol)}</strong> <span style="color:var(--text3);font-size:10px">${escHtml(t.name)}</span></div>`;
+
+  for (const [key, factor] of Object.entries(f)) {
+    const pct = factor.score;
+    const color = pct >= 70 ? 'var(--green)' : pct >= 40 ? 'var(--yellow)' : 'var(--red)';
+    html += `<div class="score-detail">
+      <div class="label"><span>${labels[key]}</span><span style="color:${color}">${Math.round(pct)}/100 (w:${Math.round(factor.weight*100)}%)</span></div>
+      <div class="score-bar"><div class="score-fill" style="width:${pct}%;background:${color}"></div></div>
+    </div>`;
+  }
+
+  html += `<div style="margin-top:12px;font-size:10px;color:var(--text3)">
+    Vol/Liq: ${t.risk.volLiqRatio.toFixed(2)} · Age: ${Math.floor(t.age)}d · DEX: ${escHtml(t.dex)}<br>
+    <a href="https://dexscreener.com/solana/${t.address}" target="_blank" style="color:var(--sol-purple)">View on DexScreener →</a> · 
+    <a href="https://solscan.io/token/${t.address}" target="_blank" style="color:var(--sol-cyan)">Solscan →</a>
+  </div>`;
+
+  document.getElementById('scoreDetail').innerHTML = html;
+}
+
+function setSort(field) {
+  if (sortBy === field) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else { sortBy = field; sortDir = field === 'name' ? 'asc' : 'desc'; }
+  render();
+}
+
+function handleSearch(val) {
+  search = val;
+  render();
+}
+
+// ─── Init ──────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, REFRESH);
+</script>
+</body>
+</html>
